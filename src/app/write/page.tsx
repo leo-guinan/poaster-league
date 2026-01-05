@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import NextImage from "next/image";
 import { ProWriter } from "@/components/pro-writer/pro-writer";
 import { TwitterAuthIndicator } from "@/components/pro-writer/twitter-auth-indicator";
 import { WriteAccessBanner } from "@/components/user/write-access-banner";
@@ -143,7 +144,15 @@ function WritePageContent() {
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-3xl px-6 pt-6">
         <div className="mb-4 flex items-center justify-between">
-          <Link href="/">
+          <Link href="/" className="flex items-center gap-3">
+            <NextImage
+              src="/logo.svg"
+              alt="Poaster League"
+              width={32}
+              height={32}
+              className="h-8 w-8"
+              priority
+            />
             <Button variant="ghost" size="sm">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Feed

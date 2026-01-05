@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import NextImage from "next/image";
 import { PostCard } from "./post-card";
 import { AuthButton } from "@/components/user/auth-button";
 import { WriteAccessBanner } from "@/components/user/write-access-banner";
@@ -78,9 +79,21 @@ export function ProFeed() {
     <div className="mx-auto max-w-4xl px-6 py-12">
       {/* Header */}
       <div className="mb-12 flex items-center justify-between border-b border-border pb-8">
-        <div>
-          <h1 className="mb-2 text-3xl font-semibold tracking-tight">PRO FEED</h1>
-          <p className="text-sm text-muted-foreground">Active Moves</p>
+        <div className="flex items-center gap-4">
+          <Link href="/" className="flex items-center gap-3">
+            <NextImage
+              src="/logo.svg"
+              alt="Poaster League"
+              width={40}
+              height={40}
+              className="h-10 w-10"
+              priority
+            />
+          </Link>
+          <div>
+            <h1 className="mb-2 text-3xl font-semibold tracking-tight">PRO FEED</h1>
+            <p className="text-sm text-muted-foreground">Active Moves</p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <ScoutModeButton />

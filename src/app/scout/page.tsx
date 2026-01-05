@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
+import Link from "next/link";
+import NextImage from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -116,11 +118,23 @@ function ScoutPageContent() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-12">
-      <div className="mb-8">
-        <h1 className="mb-2 text-3xl font-semibold tracking-tight">Scout Mode</h1>
-        <p className="text-muted-foreground">
-          Discover writers matching your criteria
-        </p>
+      <div className="mb-8 flex items-center gap-4">
+        <Link href="/" className="flex items-center">
+          <NextImage
+            src="/logo.svg"
+            alt="Poaster League"
+            width={32}
+            height={32}
+            className="h-8 w-8"
+            priority
+          />
+        </Link>
+        <div>
+          <h1 className="mb-2 text-3xl font-semibold tracking-tight">Scout Mode</h1>
+          <p className="text-muted-foreground">
+            Discover writers matching your criteria
+          </p>
+        </div>
       </div>
 
       {success && (
