@@ -91,10 +91,36 @@ export async function GET(request: NextRequest) {
       }).eq("id", userId);
     }
 
-    // Clear OAuth cookies
-    const response = NextResponse.redirect(`${baseUrl}/write?connected=twitter`);
+    // Clear OAuth cookies and create redirect response
+    // IMPORTANT: We need to preserve Supabase session cookies in the redirect
+    // The Supabase client manages cookies through the cookieStore, but when we
+    // create a redirect, we need to ensure those cookies are included in the response
+    
+    const redirectUrl = `${baseUrl}/write?connected=twitter`;
+    
+    // Get all cookies from the store (Supabase may have updated them)
+    const allCookies = cookieStore.getAll();
+    
+    // Create redirect response
+    const response = NextResponse.redirect(redirectUrl);
+    
+    // Delete OAuth cookies
     response.cookies.delete("oauth_code_verifier");
     response.cookies.delete("oauth_state");
+    
+    // Copy all Supabase-related cookies to the redirect response
+    // Supabase uses cookies with "sb-" prefix for session management
+    allCookies.forEach((cookie) => {
+      if (cookie.name.startsWith("sb-")) {
+        response.cookies.set(cookie.name, cookie.value, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60 * 24 * 7, // 7 days
+        });
+      }
+    });
 
     return response;
   } catch (error) {
