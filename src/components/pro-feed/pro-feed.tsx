@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { PostCard } from "./post-card";
 import { AuthButton } from "@/components/user/auth-button";
@@ -95,7 +95,9 @@ export function ProFeed() {
       </div>
 
       {/* Write Access Banner */}
-      <WriteAccessBanner />
+      <Suspense fallback={null}>
+        <WriteAccessBanner />
+      </Suspense>
 
       {/* Filters */}
       <div className="mb-8 flex items-center gap-4">
