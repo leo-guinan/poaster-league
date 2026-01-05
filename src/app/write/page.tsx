@@ -150,8 +150,12 @@ function WritePageContent() {
             </Button>
           </Link>
         </div>
-        <WriteAccessBanner />
-        <TwitterAuthIndicator />
+        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading...</div>}>
+          <WriteAccessBanner />
+        </Suspense>
+        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading...</div>}>
+          <TwitterAuthIndicator />
+        </Suspense>
       </div>
       {error && (
         <div className="mx-auto max-w-3xl px-6 pt-4">

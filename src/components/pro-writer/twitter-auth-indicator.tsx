@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Loader2, Twitter } from "lucide-react";
 
@@ -11,6 +12,7 @@ interface TwitterAuthStatus {
 }
 
 export function TwitterAuthIndicator() {
+  const searchParams = useSearchParams();
   const [status, setStatus] = useState<TwitterAuthStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -32,6 +34,22 @@ export function TwitterAuthIndicator() {
   useEffect(() => {
     checkStatus();
   }, []);
+
+  // Refresh status when Twitter connection is detected in URL
+  useEffect(() => {
+    const connected = searchParams?.get("connected");
+    if (connected === "twitter") {
+      // Delay to ensure backend has processed the connection and database is updated
+      // Also clear the query param to prevent repeated refreshes
+      setTimeout(() => {
+        checkStatus();
+        // Remove query param from URL without reload
+        const url = new URL(window.location.href);
+        url.searchParams.delete("connected");
+        window.history.replaceState({}, "", url.toString());
+      }, 1000);
+    }
+  }, [searchParams]);
 
   const handleConnect = async () => {
     setIsConnecting(true);

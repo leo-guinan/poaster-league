@@ -1,19 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { UserState } from "@/lib/types/user";
 import { Link as LinkIcon, Lock } from "lucide-react";
 import { TwitterAuthIndicator } from "@/components/pro-writer/twitter-auth-indicator";
 
 export function WriteAccessBanner() {
+  const searchParams = useSearchParams();
   const [userState, setUserState] = useState<UserState | null>(null);
   const [loading, setLoading] = useState(true);
   const [requesting, setRequesting] = useState(false);
-
-  useEffect(() => {
-    fetchUserState();
-  }, []);
 
   const fetchUserState = async () => {
     try {
@@ -26,6 +24,21 @@ export function WriteAccessBanner() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchUserState();
+  }, []);
+
+  // Refresh state when Twitter connection is detected in URL
+  useEffect(() => {
+    const connected = searchParams?.get("connected");
+    if (connected === "twitter") {
+      // Delay to ensure backend has processed the connection and database is updated
+      setTimeout(() => {
+        fetchUserState();
+      }, 1000);
+    }
+  }, [searchParams]);
 
   const handleRequestAccess = async () => {
     setRequesting(true);

@@ -10,21 +10,21 @@ export async function GET() {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ connected: false });
+      return NextResponse.json({ authenticated: false });
     }
 
     const auth = await getUserTwitterAuth(user.id);
 
     if (!auth) {
-      return NextResponse.json({ connected: false });
+      return NextResponse.json({ authenticated: false });
     }
 
     return NextResponse.json({
-      connected: true,
+      authenticated: true,
       twitterUserId: auth.twitterUserId,
       twitterUsername: auth.twitterUsername,
     });
   } catch {
-    return NextResponse.json({ connected: false }, { status: 500 });
+    return NextResponse.json({ authenticated: false }, { status: 500 });
   }
 }
