@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +27,7 @@ interface Subscription {
   };
 }
 
-export default function ScoutPage() {
+function ScoutPageContent() {
   const searchParams = useSearchParams();
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
@@ -233,6 +233,20 @@ export default function ScoutPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+export default function ScoutPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      }
+    >
+      <ScoutPageContent />
+    </Suspense>
   );
 }
 
