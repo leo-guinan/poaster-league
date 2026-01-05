@@ -180,10 +180,15 @@ Scout Mode is a $29/month feature that surfaces people matching configured crite
 
 ### Implementation Status
 - ✅ Scout Mode button in UI
+- ✅ Stripe subscription integration
+- ✅ Subscription management UI
 - ⏳ Scout configuration UI (pending)
-- ⏳ Scout subscription integration (pending)
 - ⏳ Scout matching algorithm (pending)
 - ⏳ Scout report UI (pending)
+
+### Stripe Setup
+
+See [STRIPE_SETUP.md](./STRIPE_SETUP.md) for detailed Stripe integration instructions.
 
 ## Next Steps
 
