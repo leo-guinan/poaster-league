@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeCodeForToken } from "@/lib/twitter-auth";
-import { createClient } from "@/lib/supabase/server";
+import { createServerClient } from "@supabase/ssr";
 import { logger } from "@/lib/logger";
-import { cookies } from "next/headers";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -25,15 +24,40 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const cookieStore = await cookies();
-    const codeVerifier = cookieStore.get("oauth_code_verifier")?.value;
-    const storedState = cookieStore.get("oauth_state")?.value;
+    // Create a response object that we'll update as Supabase sets cookies
+    let supabaseResponse = NextResponse.next({ request });
     
+    // Create Supabase client using request/response pattern (like middleware)
+    // This ensures cookies are properly managed in the redirect response
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value }) =>
+              request.cookies.set(name, value)
+            );
+            supabaseResponse = NextResponse.next({ request });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              supabaseResponse.cookies.set(name, value, options)
+            );
+          },
+        },
+      }
+    );
+
     // Get authenticated user from Supabase
-    const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
+    
+    // Get OAuth cookies from request
+    const codeVerifier = request.cookies.get("oauth_code_verifier")?.value;
+    const storedState = request.cookies.get("oauth_state")?.value;
 
     if (!user) {
       return NextResponse.redirect(
@@ -91,27 +115,20 @@ export async function GET(request: NextRequest) {
       }).eq("id", userId);
     }
 
-    // Clear OAuth cookies and create redirect response
-    // IMPORTANT: We need to preserve Supabase session cookies in the redirect
-    // The Supabase client manages cookies through the cookieStore, but when we
-    // create a redirect, we need to ensure those cookies are included in the response
-    
+    // Create redirect response, preserving Supabase session cookies
+    // The supabaseResponse already has all the Supabase cookies set
     const redirectUrl = `${baseUrl}/write?connected=twitter`;
-    
-    // Get all cookies from the store (Supabase may have updated them)
-    const allCookies = cookieStore.getAll();
-    
-    // Create redirect response
     const response = NextResponse.redirect(redirectUrl);
     
-    // Delete OAuth cookies
-    response.cookies.delete("oauth_code_verifier");
-    response.cookies.delete("oauth_state");
-    
-    // Copy all Supabase-related cookies to the redirect response
-    // Supabase uses cookies with "sb-" prefix for session management
+    // Copy all cookies from supabaseResponse to the redirect response
+    // This preserves the Supabase session cookies
+    // The supabaseResponse cookies already have the correct options set by Supabase
+    const allCookies = supabaseResponse.cookies.getAll();
     allCookies.forEach((cookie) => {
+      // Copy Supabase session cookies (sb-* prefix) and any other cookies Supabase set
       if (cookie.name.startsWith("sb-")) {
+        // The cookie value from supabaseResponse is what we need
+        // We'll set it with standard secure options
         response.cookies.set(cookie.name, cookie.value, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
@@ -121,6 +138,10 @@ export async function GET(request: NextRequest) {
         });
       }
     });
+    
+    // Delete OAuth cookies
+    response.cookies.delete("oauth_code_verifier");
+    response.cookies.delete("oauth_state");
 
     return response;
   } catch (error) {
