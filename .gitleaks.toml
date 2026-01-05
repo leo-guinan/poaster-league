@@ -1,0 +1,24 @@
+title = "Poaster League Secret Detection"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist for Poaster League"
+paths = [
+  '''\.gitleaksignore''',
+  '''\.env\.example''',
+  '''\.env\.local\.example''',
+  '''supabase-schema\.sql''',
+  '''SETUP\.md''',
+  '''README\.md''',
+]
+
+[allowlist.regexes]
+description = "Allowlist regexes"
+regexes = [
+  '''example.*token''',
+  '''your_.*_here''',
+  '''placeholder''',
+]
+

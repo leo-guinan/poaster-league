@@ -1,0 +1,39 @@
+echo "🔍 Running pre-commit checks..."
+
+# Run secret detection
+echo "Checking for secrets..."
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --verbose --no-banner
+  if [ $? -ne 0 ]; then
+    echo "❌ Secret detection failed! Please remove any secrets before committing."
+    exit 1
+  fi
+else
+  echo "⚠️  gitleaks not found, skipping secret detection. Install with: pnpm add -D gitleaks"
+fi
+
+# Run linting
+echo "Running linter..."
+pnpm lint
+if [ $? -ne 0 ]; then
+  echo "❌ Linting failed! Please fix linting errors before committing."
+  exit 1
+fi
+
+# Run type checking
+echo "Running type check..."
+pnpm type-check
+if [ $? -ne 0 ]; then
+  echo "❌ Type checking failed! Please fix type errors before committing."
+  exit 1
+fi
+
+# Run tests
+echo "Running tests..."
+pnpm test
+if [ $? -ne 0 ]; then
+  echo "❌ Tests failed! Please fix failing tests before committing."
+  exit 1
+fi
+
+echo "✅ Pre-commit checks passed!"

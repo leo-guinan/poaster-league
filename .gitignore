@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# database
+*.db
+*.db-journal
+
+# husky
+.husky/_/
+
+# gitleaks
+.gitleaks.toml.bak
+
+# test coverage
+coverage/
+.nyc_output/
+*.lcov

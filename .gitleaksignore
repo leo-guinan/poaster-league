@@ -1,0 +1,13 @@
+# Ignore test files and example files
+*.example
+*.test.*
+.env.example
+.env.local.example
+
+# Ignore schema files (they don't contain real secrets)
+supabase-schema.sql
+
+# Ignore documentation
+SETUP.md
+README.md
+
