@@ -29,18 +29,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <head>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
         {/* Fathom Analytics */}
         <Script
           src="https://cdn.usefathom.com/script.js"
           data-site="VFYYOUXE"
+          data-spa="auto"
           strategy="afterInteractive"
-          defer
         />
-      </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
         {children}
       </body>
     </html>
