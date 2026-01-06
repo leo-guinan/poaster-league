@@ -51,32 +51,65 @@ export async function GET(request: NextRequest) {
     );
 
     // Get authenticated user from Supabase
+    // IMPORTANT: Call getUser() BEFORE reading cookies, as Supabase may update cookie values
     const {
       data: { user },
+      error: userError,
     } = await supabase.auth.getUser();
+    
+    // After getUser(), Supabase may have updated cookies in supabaseResponse
+    // Also get cookies from request (which may have been updated by Supabase's setAll callback)
+    const cookiesAfterGetUser = request.cookies.getAll();
+    
+    // Log what cookies Supabase might have set/updated
+    const supabaseResponseCookiesAfter = supabaseResponse.cookies.getAll();
+    logger.debug(`After getUser(): supabaseResponse has ${supabaseResponseCookiesAfter.length} cookies, request has ${cookiesAfterGetUser.length} cookies`);
     
     // Get OAuth cookies from request
     const codeVerifier = request.cookies.get("oauth_code_verifier")?.value;
     const storedState = request.cookies.get("oauth_state")?.value;
 
+    // Log all cookies for debugging
+    logger.debug(`OAuth callback received. Request has ${cookiesAfterGetUser.length} cookies`);
+    const allCookieNames = cookiesAfterGetUser.map((c: { name: string }) => c.name).join(", ");
+    logger.debug(`All cookies in request: ${allCookieNames}`);
+    const supabaseCookieNames = cookiesAfterGetUser.filter((c: { name: string }) => c.name.startsWith("sb-")).map((c: { name: string }) => c.name).join(", ");
+    logger.debug(`Supabase cookies in request: ${supabaseCookieNames || "none"}`);
+    
+    // Log cookie values (truncated for security)
+    cookiesAfterGetUser.filter((c: { name: string }) => c.name.startsWith("sb-")).forEach((cookie: { name: string; value: string }) => {
+      logger.debug(`  ${cookie.name}: ${cookie.value.substring(0, 50)}... (${cookie.value.length} chars)`);
+    });
+
     if (!user) {
+      logger.error("No authenticated user found in callback", {
+        userError: userError?.message,
+        hasSupabaseCookies: cookiesAfterGetUser.some((c: { name: string }) => c.name.startsWith("sb-")),
+      });
       return NextResponse.redirect(
         `${baseUrl}/write?error=not_authenticated`
       );
     }
 
     const userId = user.id;
-
-    logger.debug("OAuth callback received");
+    logger.debug(`OAuth callback for user: ${userId}`);
 
     if (!codeVerifier || !storedState) {
-      logger.error("Missing OAuth cookies in callback");
+      logger.error("Missing OAuth cookies in callback", {
+        hasCodeVerifier: !!codeVerifier,
+        hasStoredState: !!storedState,
+        allCookieNames: cookiesAfterGetUser.map((c: { name: string }) => c.name).join(", "),
+      });
       return NextResponse.redirect(
         `${baseUrl}/write?error=missing_verifier`
       );
     }
 
     if (state !== storedState) {
+      logger.error("State mismatch in OAuth callback", {
+        receivedState: state,
+        storedState: storedState,
+      });
       return NextResponse.redirect(
         `${baseUrl}/write?error=invalid_state`
       );
@@ -153,40 +186,101 @@ export async function GET(request: NextRequest) {
     }
 
     // Create redirect response, preserving Supabase session cookies
-    // The supabaseResponse already has all the Supabase cookies set
+    // CRITICAL: Start with supabaseResponse and modify it to redirect
+    // This preserves ALL cookies that Supabase set, with their original attributes
     const redirectUrl = `${baseUrl}/write?connected=twitter`;
+    
+    // Get all cookies from both sources AFTER getUser() call
+    const supabaseResponseCookies = supabaseResponseCookiesAfter;
+    const requestCookies = cookiesAfterGetUser;
+    const supabaseRequestCookies = requestCookies.filter(c => c.name.startsWith("sb-"));
+    
+    logger.debug(`supabaseResponse has ${supabaseResponseCookies.length} cookies, request has ${supabaseRequestCookies.length} Supabase cookies`);
+    logger.debug(`All Supabase cookie names in request: ${supabaseRequestCookies.map(c => c.name).join(", ")}`);
+    logger.debug(`All cookie names in supabaseResponse: ${supabaseResponseCookies.map(c => c.name).join(", ") || "none"}`);
+    
+    // Create redirect response
+    // We'll copy cookies to it, ensuring we preserve the session
     const response = NextResponse.redirect(redirectUrl);
     
-    // Copy all cookies from supabaseResponse to the redirect response
-    // This preserves the Supabase session cookies
-    // The supabaseResponse cookies already have the correct options set by Supabase
-    const allCookies = supabaseResponse.cookies.getAll();
-    allCookies.forEach((cookie) => {
-      // Copy Supabase session cookies (sb-* prefix) and any other cookies Supabase set
-      if (cookie.name.startsWith("sb-")) {
-        // The cookie value from supabaseResponse is what we need
-        // We'll set it with standard secure options
+    // Create a map to track which cookies we've set (supabaseResponse takes precedence)
+    const cookiesSet = new Set<string>();
+    
+    // CRITICAL STEP 1: Copy ALL cookies from supabaseResponse first
+    // These are the cookies that Supabase set/updated during getUser()
+    // Use the cookie's original value and set with proper attributes
+    supabaseResponseCookies.forEach((cookie) => {
+      response.cookies.set(cookie.name, cookie.value, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 7,
+      });
+      cookiesSet.add(cookie.name);
+      logger.debug(`✓ Copied cookie from supabaseResponse: ${cookie.name}`);
+    });
+    
+    // CRITICAL STEP 2: Copy ALL Supabase cookies from the request (after getUser() call)
+    // This preserves the existing session even if Supabase didn't set new cookies
+    // (which happens when the session is already valid - Supabase doesn't update cookies)
+    // We MUST copy these to preserve the session across the redirect
+    supabaseRequestCookies.forEach((cookie) => {
+      // Only set if not already set from supabaseResponse (supabaseResponse takes precedence)
+      if (!cookiesSet.has(cookie.name)) {
         response.cookies.set(cookie.name, cookie.value, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
           sameSite: "lax",
           path: "/",
-          maxAge: 60 * 60 * 24 * 7, // 7 days
+          maxAge: 60 * 60 * 24 * 7,
         });
+        cookiesSet.add(cookie.name);
+        logger.debug(`✓ Copied Supabase cookie from request: ${cookie.name}`);
+      } else {
+        logger.debug(`⊘ Skipped ${cookie.name} (already set from supabaseResponse)`);
       }
     });
     
-    // Delete OAuth cookies
+    // Delete OAuth cookies (cleanup)
     response.cookies.delete("oauth_code_verifier");
     response.cookies.delete("oauth_state");
 
+    // Verify what we're actually sending
+    const finalCookies = response.cookies.getAll();
+    const finalSupabaseCookies = finalCookies.filter(c => c.name.startsWith("sb-"));
+    logger.debug(`Final response has ${finalCookies.length} total cookies, ${finalSupabaseCookies.length} Supabase cookies`);
+    logger.debug(`Supabase cookies being sent: ${finalSupabaseCookies.map(c => `${c.name} (${c.value.length} chars)`).join(", ")}`);
+    
+    if (finalSupabaseCookies.length === 0) {
+      logger.error("WARNING: No Supabase cookies in final response! Session will be lost.");
+    } else {
+      // Verify the cookie value is not empty
+      finalSupabaseCookies.forEach((cookie) => {
+        if (!cookie.value || cookie.value.length === 0) {
+          logger.error(`WARNING: Cookie ${cookie.name} has empty value!`);
+        }
+      });
+    }
+    
+    logger.debug("OAuth callback completed successfully, redirecting to write page");
     return response;
   } catch (error) {
-    logger.error("Error in Twitter OAuth callback:", error instanceof Error ? error.message : "Unknown error");
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error("Error in Twitter OAuth callback:", errorMessage);
+    
+    // Provide user-friendly error messages
+    let userFriendlyMessage = "authentication_failed";
+    if (errorMessage.includes("rate limit")) {
+      userFriendlyMessage = "Twitter API rate limit exceeded. Please wait a few minutes and try again.";
+    } else if (errorMessage.includes("429")) {
+      userFriendlyMessage = "Twitter API rate limit exceeded. Please wait a few minutes and try again.";
+    } else if (errorMessage.includes("invalid") || errorMessage.includes("expired")) {
+      userFriendlyMessage = "Twitter authentication failed. Please try connecting again.";
+    }
+    
     return NextResponse.redirect(
-      `${baseUrl}/write?error=${encodeURIComponent(
-        error instanceof Error ? error.message : "authentication_failed"
-      )}`
+      `${baseUrl}/write?error=${encodeURIComponent(userFriendlyMessage)}`
     );
   }
 }

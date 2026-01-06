@@ -93,11 +93,25 @@ export async function exchangeCodeForToken(
     refreshToken = result.refreshToken;
     expiresIn = result.expiresIn;
   } catch (error: unknown) {
-    // Log error without exposing sensitive details
-    const errorObj = error as { code?: string; message?: string };
+    // Log error with more details for debugging
+    const errorObj = error as { code?: string; message?: string; status?: number; rateLimit?: unknown };
+    const errorMessage = errorObj.message || "Unknown error";
+    const errorCode = errorObj.code || errorObj.status?.toString();
+    
+    // Handle rate limiting (429) specifically
+    if (errorCode === "429" || errorObj.status === 429) {
+      logger.error("Twitter OAuth2 rate limited (429):", {
+        code: errorCode,
+        message: errorMessage,
+        rateLimit: errorObj.rateLimit,
+      });
+      throw new Error("Twitter API rate limit exceeded. Please wait a few minutes and try again.");
+    }
+    
+    // Log other errors
     logger.error("Twitter OAuth2 login failed:", {
-      code: errorObj.code,
-      message: errorObj.message,
+      code: errorCode,
+      message: errorMessage,
       // Don't log redirectUri, codeVerifier, or code in production
     });
     throw error;
