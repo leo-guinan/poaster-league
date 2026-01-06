@@ -53,12 +53,14 @@ CREATE TABLE IF NOT EXISTS scout_matches (
 CREATE TABLE IF NOT EXISTS posts (
   id SERIAL PRIMARY KEY,
   user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  parent_post_id INTEGER REFERENCES posts(id) ON DELETE SET NULL,
   content TEXT NOT NULL,
   intent TEXT,
   relationships JSONB,
   post_to_twitter BOOLEAN DEFAULT false,
   post_to_pro_feed BOOLEAN DEFAULT true,
   twitter_post_id TEXT,
+  twitter_reply_to_id TEXT,
   quality_checks JSONB,
   draft_maturity INTEGER DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
@@ -95,15 +97,46 @@ CREATE TABLE IF NOT EXISTS twitter_tokens (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Annotations (private replies visible only to the creator)
+CREATE TABLE IF NOT EXISTS annotations (
+  id SERIAL PRIMARY KEY,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL,
+  post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE NOT NULL,
+  content TEXT NOT NULL,
+  intent TEXT,
+  relationships JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, post_id) -- One annotation per user per post
+);
+
+-- Post tracking (users can track posts they want to follow)
+CREATE TABLE IF NOT EXISTS post_tracking (
+  id SERIAL PRIMARY KEY,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL,
+  post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, post_id) -- One tracking entry per user per post
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_users_twitter_user_id ON users(twitter_user_id);
 CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(user_id);
 CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);
 CREATE INDEX IF NOT EXISTS idx_posts_published_at ON posts(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_parent_post_id ON posts(parent_post_id);
 CREATE INDEX IF NOT EXISTS idx_scout_profiles_user_id ON scout_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_scout_matches_scout_profile_id ON scout_matches(scout_profile_id);
 CREATE INDEX IF NOT EXISTS idx_twitter_tokens_user_id ON twitter_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_twitter_tokens_twitter_user_id ON twitter_tokens(twitter_user_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_user_id ON annotations(user_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_post_id ON annotations(post_id);
+CREATE INDEX IF NOT EXISTS idx_post_tracking_user_id ON post_tracking(user_id);
+CREATE INDEX IF NOT EXISTS idx_post_tracking_post_id ON post_tracking(post_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_user_id ON annotations(user_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_post_id ON annotations(post_id);
+CREATE INDEX IF NOT EXISTS idx_post_tracking_user_id ON post_tracking(user_id);
+CREATE INDEX IF NOT EXISTS idx_post_tracking_post_id ON post_tracking(post_id);
 
 -- Row Level Security (RLS) policies
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -113,6 +146,8 @@ ALTER TABLE scout_matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE drafts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE twitter_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE annotations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE post_tracking ENABLE ROW LEVEL SECURITY;
 
 -- Users can read their own data
 CREATE POLICY "Users can read own data" ON users
@@ -137,6 +172,18 @@ CREATE POLICY "Users can read own posts" ON posts
 -- Users can create their own posts
 CREATE POLICY "Users can create own posts" ON posts
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- Authenticated users with write permission can create anonymous replies (user_id = null)
+CREATE POLICY "Users can create anonymous replies" ON posts
+  FOR INSERT WITH CHECK (
+    user_id IS NULL
+    AND auth.uid() IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM users
+      WHERE users.id = auth.uid()
+      AND users.write_permission = true
+    )
+  );
 
 -- Users can read their own drafts
 CREATE POLICY "Users can read own drafts" ON drafts

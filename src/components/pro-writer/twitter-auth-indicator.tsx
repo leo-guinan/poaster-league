@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Loader2, Twitter } from "lucide-react";
+import { trackEvent, FATHOM_EVENTS } from "@/lib/analytics";
 
 interface TwitterAuthStatus {
   authenticated: boolean;
@@ -39,6 +40,8 @@ export function TwitterAuthIndicator() {
   useEffect(() => {
     const connected = searchParams?.get("connected");
     if (connected === "twitter") {
+      // Track Twitter connection
+      trackEvent(FATHOM_EVENTS.TWITTER_CONNECT);
       // Delay to ensure backend has processed the connection and database is updated
       // Also clear the query param to prevent repeated refreshes
       setTimeout(() => {
@@ -74,6 +77,7 @@ export function TwitterAuthIndicator() {
         method: "POST",
       });
       if (response.ok) {
+        trackEvent(FATHOM_EVENTS.TWITTER_DISCONNECT);
         await checkStatus();
       }
     } catch (error) {

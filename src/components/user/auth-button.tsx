@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { UserState } from "@/lib/types/user";
 import { LogIn, LogOut } from "lucide-react";
 import Link from "next/link";
+import { trackEvent, FATHOM_EVENTS } from "@/lib/analytics";
 
 export function AuthButton() {
   const [userState, setUserState] = useState<UserState | null>(null);
@@ -29,6 +30,7 @@ export function AuthButton() {
   const handleSignOut = async () => {
     try {
       await fetch("/api/auth/signout", { method: "POST" });
+      trackEvent(FATHOM_EVENTS.SIGN_OUT);
       setUserState(null);
       window.location.reload();
     } catch (error) {

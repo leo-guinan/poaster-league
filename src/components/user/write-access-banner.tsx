@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { UserState } from "@/lib/types/user";
 import { Link as LinkIcon, Lock } from "lucide-react";
 import { TwitterAuthIndicator } from "@/components/pro-writer/twitter-auth-indicator";
+import { trackEvent, FATHOM_EVENTS } from "@/lib/analytics";
 
 export function WriteAccessBanner() {
   const searchParams = useSearchParams();
@@ -49,6 +50,7 @@ export function WriteAccessBanner() {
       const data = await response.json();
 
       if (response.ok) {
+        trackEvent(FATHOM_EVENTS.WRITE_ACCESS_REQUESTED);
         alert("Write access request submitted. We'll review it shortly.");
         await fetchUserState();
       } else {

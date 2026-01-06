@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { MessageSquare, BookOpen, Bookmark } from "lucide-react";
+import { MessageSquare, BookOpen, Bookmark, BookmarkCheck } from "lucide-react";
 import { INTENTS, RELATIONSHIPS } from "@/lib/constants/pro-writer";
 import { IntentType, RelationshipType } from "@/lib/types/pro-writer";
 import { cn } from "@/lib/utils";
+import { ReplyEditor } from "./reply-editor";
+import { AnnotationEditor } from "./annotation-editor";
 
 interface PostCardProps {
   id: number;
@@ -35,20 +37,80 @@ const LIFECYCLE_STATES = {
 };
 
 export function PostCard({
-  id: _id, // Used as React key in parent component, not used in component
+  id,
   content,
   intent,
   relationships,
   createdAt,
   publishedAt,
+  twitterPostId,
   authorName = "Anonymous",
   authorTier = "pro",
   signalStatus,
   lifecycleState = "open",
 }: PostCardProps) {
-  // Suppress unused var warning - id is used as React key in parent
-  void _id;
   const [isResponding, setIsResponding] = useState(false);
+  const [isAnnotating, setIsAnnotating] = useState(false);
+  const [isTracked, setIsTracked] = useState(false);
+  const [isTogglingTrack, setIsTogglingTrack] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Check authentication and load tracking status
+  useEffect(() => {
+    const checkAuthAndLoadTracking = async () => {
+      try {
+        // Check if user is authenticated
+        const stateResponse = await fetch("/api/user/state");
+        const stateData = await stateResponse.json();
+        
+        if (stateData && stateData.authState === "authenticated") {
+          setIsAuthenticated(true);
+          
+          // Load tracking status
+          const trackResponse = await fetch(`/api/posts/track?postId=${id}`);
+          const trackData = await trackResponse.json();
+          
+          if (trackResponse.ok) {
+            setIsTracked(trackData.tracked || false);
+          }
+        }
+      } catch {
+        // User not authenticated or error - that's fine
+        setIsAuthenticated(false);
+      }
+    };
+
+    checkAuthAndLoadTracking();
+  }, [id]);
+
+  const handleToggleTrack = async () => {
+    if (!isAuthenticated) {
+      // Could show a message to sign in
+      return;
+    }
+
+    setIsTogglingTrack(true);
+    try {
+      const response = await fetch("/api/posts/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postId: id,
+          tracked: !isTracked,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setIsTracked(data.tracked);
+      }
+    } catch (error) {
+      console.error("Error toggling track:", error);
+    } finally {
+      setIsTogglingTrack(false);
+    }
+  };
 
   const intentLabel = intent ? INTENTS[intent].label : "Not specified";
   const relationshipLabels = relationships
@@ -161,15 +223,58 @@ export function PostCard({
           <MessageSquare className="mr-2 h-4 w-4" />
           Respond
         </Button>
-        <Button variant="outline" size="sm">
-          <BookOpen className="mr-2 h-4 w-4" />
-          Annotate
-        </Button>
-        <Button variant="outline" size="sm">
-          <Bookmark className="mr-2 h-4 w-4" />
-          Track
-        </Button>
+        {isAuthenticated && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsAnnotating(!isAnnotating)}
+          >
+            <BookOpen className="mr-2 h-4 w-4" />
+            Annotate
+          </Button>
+        )}
+        {isAuthenticated && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleToggleTrack}
+            disabled={isTogglingTrack}
+          >
+            {isTracked ? (
+              <BookmarkCheck className="mr-2 h-4 w-4 fill-current" />
+            ) : (
+              <Bookmark className="mr-2 h-4 w-4" />
+            )}
+            Track
+          </Button>
+        )}
       </div>
+
+      {/* Reply Editor */}
+      {isResponding && (
+        <ReplyEditor
+          parentPostId={id}
+          parentTwitterPostId={twitterPostId}
+          onCancel={() => setIsResponding(false)}
+          onSuccess={() => {
+            setIsResponding(false);
+            // Optionally refresh the feed or show a success message
+            window.location.reload();
+          }}
+        />
+      )}
+
+      {/* Annotation Editor */}
+      {isAnnotating && isAuthenticated && (
+        <AnnotationEditor
+          postId={id}
+          onCancel={() => setIsAnnotating(false)}
+          onSuccess={() => {
+            setIsAnnotating(false);
+            // Annotation saved - could show success message
+          }}
+        />
+      )}
     </div>
   );
 }

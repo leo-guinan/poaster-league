@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, XCircle, Loader2, Search, Calendar } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import { trackEvent, trackPageView, FATHOM_EVENTS } from "@/lib/analytics";
 
 interface Subscription {
   id: string;
@@ -37,6 +38,19 @@ function ScoutPageContent() {
 
   const success = searchParams.get("success");
   const canceled = searchParams.get("canceled");
+
+  // Track page view
+  useEffect(() => {
+    trackPageView("/scout");
+    trackEvent(FATHOM_EVENTS.PAGE_VIEW_SCOUT);
+  }, []);
+
+  // Track successful subscription activation
+  useEffect(() => {
+    if (success === "true") {
+      trackEvent(FATHOM_EVENTS.SCOUT_MODE_ACTIVATED);
+    }
+  }, [success]);
 
   useEffect(() => {
     fetchSubscription();

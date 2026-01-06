@@ -56,6 +56,49 @@ export async function postToTwitter(
   }
 }
 
+/**
+ * Reply to a tweet on Twitter
+ * @param content - The reply content
+ * @param replyToTweetId - The ID of the tweet to reply to
+ * @param userId - Optional user ID for authenticated posting
+ * @returns The ID of the created reply tweet
+ */
+export async function replyToTwitter(
+  content: string,
+  replyToTweetId: string,
+  userId?: string
+): Promise<string> {
+  try {
+    const client = await getTwitterClient(userId);
+    
+    logger.debug("Replying to Twitter tweet", {
+      replyToTweetId,
+    });
+    
+    // Use the reply parameter to reply to a specific tweet
+    // Twitter API v2 uses reply.in_reply_to_tweet_id
+    // The twitter-api-v2 library expects the reply object with in_reply_to_tweet_id
+    const reply = await client.v2.tweet({
+      text: content,
+      reply: {
+        in_reply_to_tweet_id: replyToTweetId,
+      },
+    });
+    
+    return reply.data.id;
+  } catch (error: unknown) {
+    const errorObj = error as { code?: string; message?: string };
+    logger.error("Error replying to Twitter:", {
+      code: errorObj.code,
+      message: errorObj.message,
+      replyToTweetId,
+    });
+    throw new Error(
+      `Failed to reply to Twitter: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+  }
+}
+
 export function isTwitterConfigured(): boolean {
   // Check for OAuth 2.0 credentials (Client ID + Client Secret + Access Token)
   const hasOAuth2 =

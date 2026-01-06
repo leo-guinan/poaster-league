@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { UserState } from "@/lib/types/user";
 import { Search, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { trackEvent, FATHOM_EVENTS } from "@/lib/analytics";
 
 export function ScoutModeButton() {
   const [userState, setUserState] = useState<UserState | null>(null);
@@ -31,6 +32,7 @@ export function ScoutModeButton() {
   const handleClick = async () => {
     if (userState?.scoutStatus === "active") {
       // Navigate to scout dashboard
+      trackEvent(FATHOM_EVENTS.PAGE_VIEW_SCOUT);
       router.push("/scout");
       return;
     }
@@ -51,6 +53,8 @@ export function ScoutModeButton() {
 
       const { url } = await response.json();
       if (url) {
+        // Track scout mode activation attempt
+        trackEvent(FATHOM_EVENTS.SCOUT_MODE_ACTIVATED);
         window.location.href = url;
       }
     } catch (error) {

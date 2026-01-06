@@ -10,6 +10,7 @@ import { ScoutModeButton } from "@/components/scout/scout-mode-button";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, PenTool } from "lucide-react";
 import { IntentType, RelationshipType } from "@/lib/types/pro-writer";
+import { trackEvent, trackPageView, FATHOM_EVENTS } from "@/lib/analytics";
 
 interface Post {
   id: number;
@@ -18,7 +19,8 @@ interface Post {
   relationships: string[];
   createdAt: Date | string | number;
   publishedAt: Date | string | number | null;
-  twitterPostId: string | null;
+  twitter_post_id: string | null; // Database field name
+  twitterPostId?: string | null; // Mapped field name
   status: string;
 }
 
@@ -37,6 +39,12 @@ export function ProFeed() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [intentFilter, setIntentFilter] = useState<string>("");
+
+  // Track page view on mount
+  useEffect(() => {
+    trackPageView("/");
+    trackEvent(FATHOM_EVENTS.PAGE_VIEW_FEED);
+  }, []);
 
   useEffect(() => {
     fetchPosts();
@@ -168,7 +176,7 @@ export function ProFeed() {
                   }
                   createdAt={createdAt}
                   publishedAt={publishedAt}
-                  twitterPostId={post.twitterPostId}
+                  twitterPostId={post.twitter_post_id || post.twitterPostId || null}
                 />
               );
             })}

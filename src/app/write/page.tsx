@@ -11,6 +11,7 @@ import { UserState } from "@/lib/types/user";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Lock } from "lucide-react";
+import { trackEvent, trackPageView, FATHOM_EVENTS } from "@/lib/analytics";
 
 function WritePageContent() {
   const searchParams = useSearchParams();
@@ -38,6 +39,12 @@ function WritePageContent() {
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to publish post");
+      }
+
+      // Track analytics
+      trackEvent(FATHOM_EVENTS.POST_PUBLISHED);
+      if (data.twitterPostId) {
+        trackEvent(FATHOM_EVENTS.POST_PUBLISHED_TO_TWITTER);
       }
 
       // Success - clear form state by resetting the component key
@@ -75,6 +82,9 @@ function WritePageContent() {
         throw new Error(data.error || "Failed to save draft");
       }
 
+      // Track analytics
+      trackEvent(FATHOM_EVENTS.DRAFT_SAVED);
+
       console.log("Draft saved successfully:", data);
       // Could show success toast here
     } catch (err) {
@@ -92,6 +102,12 @@ function WritePageContent() {
     // In the future, this could create a review request
     await handleSaveDraft(draft);
   };
+
+  // Track page view
+  useEffect(() => {
+    trackPageView("/write");
+    trackEvent(FATHOM_EVENTS.PAGE_VIEW_WRITE);
+  }, []);
 
   // Fetch user state
   useEffect(() => {
