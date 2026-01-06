@@ -56,6 +56,10 @@ export async function POST() {
         })
         .eq("user_id", user.id);
 
+      // Check Community Archive eligibility and auto-grant write access if eligible
+      const { checkCommunityArchiveEligibility } = await import("@/lib/user-state");
+      const isEligible = await checkCommunityArchiveEligibility(userInfo.data.id);
+      
       // Update user profile
       await supabase
         .from("users")
@@ -65,8 +69,16 @@ export async function POST() {
           name: userInfo.data.name || null,
           avatar_url: userInfo.data.profile_image_url || null,
           twitter_verified: true,
+          write_permission: isEligible, // Auto-grant if in Community Archive
         })
         .eq("id", user.id);
+      
+      if (isEligible) {
+        logger.info("User found in Community Archive, write access automatically granted", {
+          userId: user.id,
+          twitterUserId: userInfo.data.id,
+        });
+      }
 
       logger.info("Twitter user info fetched successfully", {
         userId: user.id,

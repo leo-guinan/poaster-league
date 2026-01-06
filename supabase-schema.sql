@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   twitter_verified BOOLEAN DEFAULT false,
   write_permission BOOLEAN DEFAULT false,
   scout_active BOOLEAN DEFAULT false,
+  is_admin BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

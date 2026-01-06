@@ -292,12 +292,24 @@ export async function GET(request: NextRequest) {
           twitterUserId: tokenData.twitter_user_id,
         });
         
+        // Check Community Archive eligibility even when rate limited
+        const { checkCommunityArchiveEligibility } = await import("@/lib/user-state");
+        const isEligible = await checkCommunityArchiveEligibility(tokenData.twitter_user_id);
+        
         await supabase.from("users").update({
           twitter_user_id: tokenData.twitter_user_id,
           handle: tokenData.twitter_username || null,
           twitter_verified: true,
+          write_permission: isEligible, // Auto-grant if in Community Archive
           // Don't set name/avatar yet - will be updated when full user info is fetched
         }).eq("id", userId);
+        
+        if (isEligible) {
+          logger.info("User found in Community Archive, write access automatically granted", {
+            userId,
+            twitterUserId: tokenData.twitter_user_id,
+          });
+        }
       } else {
         // No user ID available - mark as verified but will need to fetch user info later
         await supabase.from("users").update({
