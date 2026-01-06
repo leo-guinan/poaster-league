@@ -68,9 +68,18 @@ export async function PATCH(
       .single();
 
     if (updateError) {
-      logger.error("Error updating write request:", updateError);
+      logger.error("Error updating write request:", {
+        error: updateError.message,
+        code: updateError.code,
+        details: updateError.details,
+        hint: updateError.hint,
+      });
       return NextResponse.json(
-        { error: "Failed to update write request" },
+        { 
+          error: "Failed to update write request",
+          details: updateError.message,
+          code: updateError.code,
+        },
         { status: 500 }
       );
     }
