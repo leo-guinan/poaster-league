@@ -96,23 +96,60 @@ export async function GET(request: NextRequest) {
     const twitterClient = new TwitterApi(tokenResult.accessToken);
     const twitterUser = await twitterClient.v2.me();
 
-    // Update user's Twitter identity in Supabase
-    await supabase.from("users").update({
+    // Check if there's a placeholder account for this Twitter ID
+    const { data: placeholder } = await supabase
+      .from("placeholder_accounts")
+      .select("*")
+      .eq("twitter_user_id", twitterUser.data.id)
+      .is("claimed_by", null)
+      .maybeSingle();
+
+    // Prepare user data (use placeholder data if available, otherwise use Twitter data)
+    const userData: {
+      twitter_user_id: string;
+      handle: string;
+      name: string;
+      avatar_url?: string;
+      twitter_verified: boolean;
+      write_permission?: boolean;
+    } = {
       twitter_user_id: twitterUser.data.id,
-      handle: twitterUser.data.username,
-      name: twitterUser.data.name,
-      avatar_url: twitterUser.data.profile_image_url,
+      handle: placeholder?.handle || twitterUser.data.username,
+      name: placeholder?.name || twitterUser.data.name,
+      avatar_url: placeholder?.avatar_url || twitterUser.data.profile_image_url,
       twitter_verified: true,
-    }).eq("id", userId);
+    };
 
     // Check Community Archive eligibility
     const { checkCommunityArchiveEligibility } = await import("@/lib/user-state");
     const isEligible = await checkCommunityArchiveEligibility(twitterUser.data.id);
     
     if (isEligible) {
-      await supabase.from("users").update({
-        write_permission: true,
-      }).eq("id", userId);
+      userData.write_permission = true;
+    }
+
+    // Update user's Twitter identity in Supabase
+    await supabase.from("users").update(userData).eq("id", userId);
+
+    // If placeholder exists, mark it as claimed and link posts
+    if (placeholder) {
+      await supabase
+        .from("placeholder_accounts")
+        .update({
+          claimed_by: userId,
+          claimed_at: new Date().toISOString(),
+          // Update placeholder with latest Twitter data
+          handle: twitterUser.data.username,
+          name: twitterUser.data.name,
+          avatar_url: twitterUser.data.profile_image_url,
+        })
+        .eq("id", placeholder.id);
+
+      logger.info(`Placeholder account claimed: @${twitterUser.data.username} (${twitterUser.data.id})`);
+      
+      // Note: Posts created before claiming will have user_id = null
+      // To link them, we'd need to store placeholder_account_id in posts table
+      // For now, new posts will be linked correctly after claiming
     }
 
     // Create redirect response, preserving Supabase session cookies

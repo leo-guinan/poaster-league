@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
+    "populate-feed": "tsx scripts/populate-feed.ts",
     "prepare": "husky",
     "pre-commit": "gitleaks protect --staged --verbose --no-banner && pnpm lint && pnpm type-check && pnpm test",
     "pre-push": "pnpm build"
@@ -68,12 +69,14 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitest/ui": "^4.0.16",
+    "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.8",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "gitleaks": "^1.0.0",
     "husky": "^9.1.7",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.0.16"
   },
