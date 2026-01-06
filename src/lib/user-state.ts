@@ -44,10 +44,55 @@ export async function getUserState(): Promise<UserState> {
   }
 
   // Determine identity state
+  // Check if Twitter is linked by checking both user profile AND tokens table
+  // This handles the case where tokens exist but user info wasn't fetched due to rate limits
+  // If tokens exist, Twitter is linked (even if user_id isn't set yet due to rate limits)
+  let hasTwitterTokens = false;
+  let twitterUserIdFromTokens: string | null = null;
+  if (user) {
+    const { data: tokenData } = await supabase
+      .from("twitter_tokens")
+      .select("twitter_user_id, access_token")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    // If tokens exist (access_token is present), Twitter is linked
+    // twitter_user_id might be null if v2.me() was rate limited, but tokens still prove connection
+    hasTwitterTokens = !!tokenData?.access_token;
+    twitterUserIdFromTokens = tokenData?.twitter_user_id || null;
+  }
+  
   const identityState: "twitter-not-linked" | "twitter-linked" =
-    userProfile.twitter_user_id && userProfile.twitter_verified
+    (userProfile.twitter_user_id && userProfile.twitter_verified) || hasTwitterTokens
       ? "twitter-linked"
       : "twitter-not-linked";
+  
+  // If we have Twitter tokens but no user_id in profile, try to fetch it now (if not rate limited)
+  // This is a best-effort attempt to populate missing user info
+  if (hasTwitterTokens && !userProfile.twitter_user_id && twitterUserIdFromTokens) {
+    // Update user profile with Twitter user ID from tokens
+    await supabase
+      .from("users")
+      .update({
+        twitter_user_id: twitterUserIdFromTokens,
+        twitter_verified: true,
+      })
+      .eq("id", user.id);
+    
+    // Update userProfile for this response
+    userProfile.twitter_user_id = twitterUserIdFromTokens;
+    userProfile.twitter_verified = true;
+  } else if (hasTwitterTokens && !userProfile.twitter_user_id && !twitterUserIdFromTokens) {
+    // Tokens exist but no user_id - mark as verified so we know it's linked
+    // User ID will be fetched later when rate limit resets
+    await supabase
+      .from("users")
+      .update({
+        twitter_verified: true,
+      })
+      .eq("id", user.id);
+    
+    userProfile.twitter_verified = true;
+  }
 
   // Determine write permission
   const writePermission: "read-only" | "write-enabled" =

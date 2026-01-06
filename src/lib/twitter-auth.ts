@@ -67,11 +67,18 @@ export async function exchangeCodeForToken(
   codeVerifier: string,
   state: string,
   userId: string,
-  baseUrl?: string
+  baseUrl?: string,
+  supabaseClient?: Awaited<ReturnType<typeof createClient>>
 ): Promise<{
   accessToken: string;
   refreshToken?: string;
   expiresIn?: number;
+  twitterUser?: {
+    id: string;
+    username: string;
+    name: string;
+    profile_image_url?: string;
+  };
 }> {
   const client = getTwitterOAuthClient();
 
@@ -84,19 +91,47 @@ export async function exchangeCodeForToken(
   let expiresIn: number | undefined;
 
   try {
+    logger.debug("Calling Twitter OAuth2 token exchange endpoint", {
+      redirectUri,
+      hasCode: !!code,
+      hasCodeVerifier: !!codeVerifier,
+      timestamp: new Date().toISOString(),
+    });
+    
     const result = await client.loginWithOAuth2({
       code,
       codeVerifier,
       redirectUri,
     });
+    
+    logger.debug("Twitter OAuth2 token exchange successful", {
+      hasAccessToken: !!result.accessToken,
+      hasRefreshToken: !!result.refreshToken,
+      expiresIn: result.expiresIn,
+    });
+    
     accessToken = result.accessToken;
     refreshToken = result.refreshToken;
     expiresIn = result.expiresIn;
   } catch (error: unknown) {
     // Log error with more details for debugging
-    const errorObj = error as { code?: string; message?: string; status?: number; rateLimit?: unknown };
+    const errorObj = error as { 
+      code?: string; 
+      message?: string; 
+      status?: number; 
+      rateLimit?: unknown;
+      headers?: Record<string, string>;
+      data?: unknown;
+    };
     const errorMessage = errorObj.message || "Unknown error";
     const errorCode = errorObj.code || errorObj.status?.toString();
+    
+    // Extract rate limit info from headers if available
+    const rateLimitInfo = errorObj.headers ? {
+      limit: errorObj.headers["x-rate-limit-limit"],
+      remaining: errorObj.headers["x-rate-limit-remaining"],
+      reset: errorObj.headers["x-rate-limit-reset"],
+    } : null;
     
     // Handle rate limiting (429) specifically
     if (errorCode === "429" || errorObj.status === 429) {
@@ -104,6 +139,9 @@ export async function exchangeCodeForToken(
         code: errorCode,
         message: errorMessage,
         rateLimit: errorObj.rateLimit,
+        rateLimitHeaders: rateLimitInfo,
+        fullError: errorObj.data,
+        timestamp: new Date().toISOString(),
       });
       throw new Error("Twitter API rate limit exceeded. Please wait a few minutes and try again.");
     }
@@ -112,55 +150,150 @@ export async function exchangeCodeForToken(
     logger.error("Twitter OAuth2 login failed:", {
       code: errorCode,
       message: errorMessage,
+      status: errorObj.status,
+      rateLimitHeaders: rateLimitInfo,
+      timestamp: new Date().toISOString(),
       // Don't log redirectUri, codeVerifier, or code in production
     });
     throw error;
   }
-
-  // Get user info
-  const userClient = new TwitterApi(accessToken);
-  const user = await userClient.v2.me();
 
   // Calculate expiration
   const expiresAt = expiresIn
     ? new Date(Date.now() + expiresIn * 1000).toISOString()
     : null;
 
-  // Store or update auth in Supabase
-  const supabase = await createClient();
-  const { data: existing } = await supabase
+  // Store tokens first (without user info to avoid rate limits)
+  // We'll fetch user info separately if needed
+  // Use provided client if available (for proper session context), otherwise create one
+  const supabase = supabaseClient || await createClient();
+  
+  // Note: User creation is now handled in the callback route before calling this function
+  // This ensures proper session context for RLS policies
+  
+  const { data: existing, error: existingError } = await supabase
     .from("twitter_tokens")
     .select("*")
     .eq("user_id", userId)
     .maybeSingle();
 
+  if (existingError) {
+    logger.error("Error checking for existing tokens:", {
+      userId,
+      error: existingError.message,
+      code: existingError.code,
+    });
+  }
+
   if (existing) {
-    await supabase
+    logger.debug("Updating existing Twitter tokens", { userId });
+    const { error: updateError } = await supabase
       .from("twitter_tokens")
       .update({
         access_token: accessToken,
         refresh_token: refreshToken || null,
         expires_at: expiresAt,
-        twitter_user_id: user.data.id,
-        twitter_username: user.data.username || null,
+        // Don't update user info here - will be fetched separately if needed
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", userId);
+
+    if (updateError) {
+      logger.error("Error updating Twitter tokens:", {
+        userId,
+        error: updateError.message,
+        code: updateError.code,
+        details: updateError.details,
+      });
+      throw new Error(`Failed to update Twitter tokens: ${updateError.message}`);
+    }
+    
+    logger.debug("Twitter tokens updated successfully", { userId });
   } else {
-    await supabase.from("twitter_tokens").insert({
+    logger.debug("Inserting new Twitter tokens", { userId });
+    const { error: insertError } = await supabase.from("twitter_tokens").insert({
       user_id: userId,
       access_token: accessToken,
       refresh_token: refreshToken || null,
       expires_at: expiresAt,
-      twitter_user_id: user.data.id,
-      twitter_username: user.data.username || null,
+      // Don't set user info here - will be fetched separately if needed
     });
+
+    if (insertError) {
+      logger.error("Error inserting Twitter tokens:", {
+        userId,
+        error: insertError.message,
+        code: insertError.code,
+        details: insertError.details,
+      });
+      throw new Error(`Failed to insert Twitter tokens: ${insertError.message}`);
+    }
+    
+    logger.debug("Twitter tokens inserted successfully", { userId });
+  }
+
+  // Try to get user info, but don't fail if rate limited
+  // This allows the OAuth flow to complete even if v2.me() is rate limited
+  let twitterUser: {
+    id: string;
+    username: string;
+    name: string;
+    profile_image_url?: string;
+  } | undefined;
+
+  try {
+    logger.debug("Attempting to call Twitter API v2.me() to get user info", {
+      timestamp: new Date().toISOString(),
+    });
+    
+    const userClient = new TwitterApi(accessToken);
+    const user = await userClient.v2.me();
+    
+    logger.debug("Twitter API v2.me() successful", {
+      userId: user.data.id,
+      username: user.data.username,
+    });
+
+    twitterUser = {
+      id: user.data.id,
+      username: user.data.username || "",
+      name: user.data.name || "",
+      profile_image_url: user.data.profile_image_url,
+    };
+
+    // Update tokens with user info if we got it
+    await supabase
+      .from("twitter_tokens")
+      .update({
+        twitter_user_id: user.data.id,
+        twitter_username: user.data.username || null,
+      })
+      .eq("user_id", userId);
+  } catch (error: unknown) {
+    const errorObj = error as { code?: string; status?: number; message?: string };
+    const errorCode = errorObj.code || errorObj.status?.toString();
+    
+    // If rate limited, log but don't fail - tokens are already stored
+    if (errorCode === "429" || errorObj.status === 429) {
+      logger.warn("Twitter API v2.me() rate limited during OAuth - tokens stored, user info will be fetched later", {
+        timestamp: new Date().toISOString(),
+      });
+      // Return without user info - it can be fetched later when needed
+    } else {
+      // For other errors, log but still continue
+      logger.warn("Failed to get Twitter user info during OAuth (non-fatal):", {
+        code: errorCode,
+        message: errorObj.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   return {
     accessToken,
     refreshToken,
     expiresIn,
+    twitterUser, // May be undefined if rate limited
   };
 }
 
@@ -172,6 +305,11 @@ export async function refreshTwitterToken(userId: string): Promise<{
   refreshToken?: string;
   expiresIn?: number;
 } | null> {
+  logger.debug("Attempting to refresh Twitter token", {
+    userId,
+    timestamp: new Date().toISOString(),
+  });
+  
   const supabase = await createClient();
   
   // Get current token data
@@ -182,13 +320,17 @@ export async function refreshTwitterToken(userId: string): Promise<{
     .maybeSingle();
 
   if (!tokenData?.refresh_token) {
-    logger.debug("No refresh token available for user");
+    logger.debug("No refresh token available for user", { userId });
     return null;
   }
 
   const client = getTwitterOAuthClient();
 
   try {
+    logger.debug("Calling Twitter OAuth2 refresh token endpoint", {
+      timestamp: new Date().toISOString(),
+    });
+    
     // Refresh the token
     const result = await client.refreshOAuth2Token(tokenData.refresh_token);
     

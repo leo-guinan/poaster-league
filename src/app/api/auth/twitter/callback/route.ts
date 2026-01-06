@@ -115,74 +115,200 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Ensure user exists in users table before OAuth (required for foreign key)
+    const { data: userExists } = await supabase
+      .from("users")
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+    
+    if (!userExists) {
+      logger.debug("User not found in users table, creating user record", { userId });
+      const { error: createUserError } = await supabase
+        .from("users")
+        .insert({
+          id: userId,
+          write_permission: false,
+          scout_active: false,
+        });
+      
+      if (createUserError) {
+        logger.error("Error creating user record in callback:", {
+          userId,
+          error: createUserError.message,
+          code: createUserError.code,
+        });
+        // Continue anyway - might be a race condition
+      } else {
+        logger.debug("User record created successfully", { userId });
+      }
+    }
+
     // Exchange code for token (this stores tokens in Supabase)
+    // Note: User info may not be available if v2.me() was rate limited
+    logger.debug("Starting Twitter OAuth token exchange", {
+      userId,
+      hasCode: !!code,
+      timestamp: new Date().toISOString(),
+    });
+    
     const tokenResult = await exchangeCodeForToken(
       code,
       codeVerifier,
       state,
       userId,
-      baseUrl
+      baseUrl,
+      supabase // Pass the Supabase client with proper session context
     );
 
-    // Get Twitter user info
-    const { TwitterApi } = await import("twitter-api-v2");
-    const twitterClient = new TwitterApi(tokenResult.accessToken);
-    const twitterUser = await twitterClient.v2.me();
-
-    // Check if there's a placeholder account for this Twitter ID
-    const { data: placeholder } = await supabase
-      .from("placeholder_accounts")
-      .select("*")
-      .eq("twitter_user_id", twitterUser.data.id)
-      .is("claimed_by", null)
-      .maybeSingle();
-
-    // Prepare user data (use placeholder data if available, otherwise use Twitter data)
-    const userData: {
-      twitter_user_id: string;
-      handle: string;
-      name: string;
-      avatar_url?: string;
-      twitter_verified: boolean;
-      write_permission?: boolean;
-    } = {
-      twitter_user_id: twitterUser.data.id,
-      handle: placeholder?.handle || twitterUser.data.username,
-      name: placeholder?.name || twitterUser.data.name,
-      avatar_url: placeholder?.avatar_url || twitterUser.data.profile_image_url,
-      twitter_verified: true,
-    };
-
-    // Check Community Archive eligibility
-    const { checkCommunityArchiveEligibility } = await import("@/lib/user-state");
-    const isEligible = await checkCommunityArchiveEligibility(twitterUser.data.id);
+    // Get Twitter user info - either from token exchange or fetch it now
+    // If both fail due to rate limits, we'll still complete OAuth and fetch user info later
+    let twitterUser: { data: { id: string; username: string; name: string; profile_image_url?: string } } | null = null;
     
-    if (isEligible) {
-      userData.write_permission = true;
+    if (tokenResult.twitterUser) {
+      // Use the user info we already got from exchangeCodeForToken
+      logger.debug("Using Twitter user info from token exchange", {
+        twitterUserId: tokenResult.twitterUser.id,
+        username: tokenResult.twitterUser.username,
+      });
+      twitterUser = {
+        data: tokenResult.twitterUser,
+      };
+    } else {
+      // User info wasn't available (likely rate limited), try to fetch it now
+      logger.debug("Twitter user info not available from token exchange, attempting to fetch now", {
+        timestamp: new Date().toISOString(),
+      });
+      
+      try {
+        const { TwitterApi } = await import("twitter-api-v2");
+        const twitterClient = new TwitterApi(tokenResult.accessToken);
+        const user = await twitterClient.v2.me();
+        twitterUser = user;
+        
+        // Update tokens with user info
+        await supabase
+          .from("twitter_tokens")
+          .update({
+            twitter_user_id: user.data.id,
+            twitter_username: user.data.username || null,
+          })
+          .eq("user_id", userId);
+        
+        logger.debug("Twitter user info fetched successfully", {
+          twitterUserId: user.data.id,
+          username: user.data.username,
+        });
+      } catch (error: unknown) {
+        const errorObj = error as { code?: string; status?: number; message?: string };
+        const errorCode = errorObj.code || errorObj.status?.toString();
+        
+        // If rate limited, log but continue - tokens are stored, user info can be fetched later
+        if (errorCode === "429" || errorObj.status === 429) {
+          logger.warn("Twitter API v2.me() rate limited - OAuth will complete but user info will be fetched later", {
+            timestamp: new Date().toISOString(),
+          });
+          // Continue without user info - we'll fetch it later via a background job or on next request
+        } else {
+          // For other errors, log but still continue - tokens are stored
+          logger.warn("Failed to get Twitter user info (non-fatal):", {
+            code: errorCode,
+            message: errorObj.message,
+          });
+        }
+      }
     }
 
-    // Update user's Twitter identity in Supabase
-    await supabase.from("users").update(userData).eq("id", userId);
-
-    // If placeholder exists, mark it as claimed and link posts
-    if (placeholder) {
-      await supabase
+    // Only update user data if we have Twitter user info
+    // If rate limited, tokens are stored and we can update user info later
+    if (twitterUser) {
+      // Check if there's a placeholder account for this Twitter ID
+      const { data: placeholder } = await supabase
         .from("placeholder_accounts")
-        .update({
-          claimed_by: userId,
-          claimed_at: new Date().toISOString(),
-          // Update placeholder with latest Twitter data
-          handle: twitterUser.data.username,
-          name: twitterUser.data.name,
-          avatar_url: twitterUser.data.profile_image_url,
-        })
-        .eq("id", placeholder.id);
+        .select("*")
+        .eq("twitter_user_id", twitterUser.data.id)
+        .is("claimed_by", null)
+        .maybeSingle();
 
-      logger.info(`Placeholder account claimed: @${twitterUser.data.username} (${twitterUser.data.id})`);
+      // Prepare user data (use placeholder data if available, otherwise use Twitter data)
+      const userData: {
+        twitter_user_id: string;
+        handle: string;
+        name: string;
+        avatar_url?: string;
+        twitter_verified: boolean;
+        write_permission?: boolean;
+      } = {
+        twitter_user_id: twitterUser.data.id,
+        handle: placeholder?.handle || twitterUser.data.username,
+        name: placeholder?.name || twitterUser.data.name,
+        avatar_url: placeholder?.avatar_url || twitterUser.data.profile_image_url,
+        twitter_verified: true,
+      };
+
+      // Check Community Archive eligibility
+      const { checkCommunityArchiveEligibility } = await import("@/lib/user-state");
+      const isEligible = await checkCommunityArchiveEligibility(twitterUser.data.id);
       
-      // Note: Posts created before claiming will have user_id = null
-      // To link them, we'd need to store placeholder_account_id in posts table
-      // For now, new posts will be linked correctly after claiming
+      if (isEligible) {
+        userData.write_permission = true;
+      }
+
+      // Update user's Twitter identity in Supabase
+      await supabase.from("users").update(userData).eq("id", userId);
+
+      // If placeholder exists, mark it as claimed and link posts
+      if (placeholder) {
+        await supabase
+          .from("placeholder_accounts")
+          .update({
+            claimed_by: userId,
+            claimed_at: new Date().toISOString(),
+            // Update placeholder with latest Twitter data
+            handle: twitterUser.data.username,
+            name: twitterUser.data.name,
+            avatar_url: twitterUser.data.profile_image_url,
+          })
+          .eq("id", placeholder.id);
+
+        logger.info(`Placeholder account claimed: @${twitterUser.data.username} (${twitterUser.data.id})`);
+        
+        // Note: Posts created before claiming will have user_id = null
+        // To link them, we'd need to store placeholder_account_id in posts table
+        // For now, new posts will be linked correctly after claiming
+      }
+    } else {
+      // User info not available due to rate limiting
+      // Try to get Twitter user ID from tokens table (might have been stored there)
+      const { data: tokenData } = await supabase
+        .from("twitter_tokens")
+        .select("twitter_user_id, twitter_username")
+        .eq("user_id", userId)
+        .maybeSingle();
+      
+      if (tokenData?.twitter_user_id) {
+        // We have the Twitter user ID from tokens, use it to update user record
+        logger.debug("Found Twitter user ID in tokens table, updating user record", {
+          twitterUserId: tokenData.twitter_user_id,
+        });
+        
+        await supabase.from("users").update({
+          twitter_user_id: tokenData.twitter_user_id,
+          handle: tokenData.twitter_username || null,
+          twitter_verified: true,
+          // Don't set name/avatar yet - will be updated when full user info is fetched
+        }).eq("id", userId);
+      } else {
+        // No user ID available - mark as verified but will need to fetch user info later
+        await supabase.from("users").update({
+          twitter_verified: true,
+          // Don't set other fields yet - will be updated when user info is fetched
+        }).eq("id", userId);
+        
+        logger.info("Twitter OAuth completed but no user info available (rate limited) - will be fetched later", {
+          userId,
+        });
+      }
     }
 
     // Create redirect response, preserving Supabase session cookies
