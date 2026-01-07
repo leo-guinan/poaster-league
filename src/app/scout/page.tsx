@@ -12,6 +12,9 @@ import { trackEvent, trackPageView, FATHOM_EVENTS } from "@/lib/analytics";
 import { ScoutSetup } from "@/components/scout/scout-setup";
 import { ScoutReports } from "@/components/scout/scout-reports";
 
+// Check if paywall is live (client-side)
+const PAYWALL_LIVE = process.env.NEXT_PUBLIC_PAYWALL_LIVE === "true";
+
 interface Subscription {
   id: string;
   user_id: string;
@@ -159,14 +162,26 @@ function ScoutPageContent() {
     );
   }
 
-  const isActive = subscription?.status === "active" || subscription?.status === "trialing";
+  // Determine if user has access to Scout Mode
+  // If paywall is off, check profile instead of subscription
+  const isActive = PAYWALL_LIVE
+    ? subscription?.status === "active" || subscription?.status === "trialing"
+    : true; // When paywall is off, all authenticated users have access
+
   const periodEnd = subscription?.current_period_end
     ? new Date(subscription.current_period_end)
     : null;
 
-  // Show setup if user has subscription but no profile, or if they explicitly want to see setup
-  const shouldShowSetup = !profile && isActive || showSetup;
-  const shouldShowReports = profile && isActive && !showSetup;
+  // Show setup if:
+  // - Paywall is off and no profile exists
+  // - Paywall is on, user has subscription but no profile
+  // - User explicitly wants to see setup
+  const shouldShowSetup = !profile && (isActive || !PAYWALL_LIVE) || showSetup;
+  
+  // Show reports if profile exists and:
+  // - Paywall is off (access is free)
+  // - Paywall is on and user has active subscription
+  const shouldShowReports = profile && (!PAYWALL_LIVE || (isActive && !showSetup));
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-12">
@@ -221,8 +236,8 @@ function ScoutPageContent() {
         </div>
       )}
 
-      {/* Show setup flow if no subscription or no profile */}
-      {!isActive && (
+      {/* Show setup flow if no subscription (when paywall is on) or no profile */}
+      {!isActive && PAYWALL_LIVE && (
         <Card>
           <CardHeader>
             <CardTitle>Scout Mode</CardTitle>
@@ -239,8 +254,8 @@ function ScoutPageContent() {
         </Card>
       )}
 
-      {/* Show setup if user has subscription but no profile */}
-      {shouldShowSetup && isActive && (
+      {/* Show setup if user has access but no profile */}
+      {shouldShowSetup && (isActive || !PAYWALL_LIVE) && (
         <ScoutSetup
           onComplete={() => {
             fetchProfile();
@@ -252,63 +267,66 @@ function ScoutPageContent() {
       {/* Show reports if profile exists */}
       {shouldShowReports && (
         <>
-          <Card className="mb-6">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Subscription Status</CardTitle>
-                  <CardDescription>Manage your Scout Mode subscription</CardDescription>
-                </div>
-                <Badge variant="default" className="bg-green-600">
-                  Active
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Status</p>
-                  <p className="text-lg font-semibold capitalize">{subscription?.status}</p>
-                </div>
-                {periodEnd && (
+          {/* Only show subscription status if paywall is live */}
+          {PAYWALL_LIVE && subscription && (
+            <Card className="mb-6">
+              <CardHeader>
+                <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Next Billing Date</p>
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4" />
-                      <p className="text-lg font-semibold">
-                        {periodEnd.toLocaleDateString()}
-                      </p>
+                    <CardTitle>Subscription Status</CardTitle>
+                    <CardDescription>Manage your Scout Mode subscription</CardDescription>
+                  </div>
+                  <Badge variant="default" className="bg-green-600">
+                    Active
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Status</p>
+                    <p className="text-lg font-semibold capitalize">{subscription.status}</p>
+                  </div>
+                  {periodEnd && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Next Billing Date</p>
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4" />
+                        <p className="text-lg font-semibold">
+                          {periodEnd.toLocaleDateString()}
+                        </p>
+                      </div>
                     </div>
+                  )}
+                </div>
+
+                {subscription.cancel_at_period_end && (
+                  <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-4">
+                    <p className="text-sm font-medium">
+                      Your subscription will cancel on {periodEnd?.toLocaleDateString()}. You&apos;ll continue to have access until then.
+                    </p>
                   </div>
                 )}
-              </div>
 
-              {subscription?.cancel_at_period_end && (
-                <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-4">
-                  <p className="text-sm font-medium">
-                    Your subscription will cancel on {periodEnd?.toLocaleDateString()}. You&apos;ll continue to have access until then.
-                  </p>
-                </div>
-              )}
-
-              {isActive && !subscription?.cancel_at_period_end && (
-                <Button
-                  variant="destructive"
-                  onClick={handleCancel}
-                  disabled={canceling}
-                >
-                  {canceling ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Canceling...
-                    </>
-                  ) : (
-                    "Cancel Subscription"
-                  )}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+                {isActive && !subscription.cancel_at_period_end && (
+                  <Button
+                    variant="destructive"
+                    onClick={handleCancel}
+                    disabled={canceling}
+                  >
+                    {canceling ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Canceling...
+                      </>
+                    ) : (
+                      "Cancel Subscription"
+                    )}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
           <ScoutReports profileId={profile?.id} />
         </>
       )}

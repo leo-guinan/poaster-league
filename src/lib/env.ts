@@ -36,6 +36,9 @@ export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   isProduction: process.env.NODE_ENV === "production",
   isDevelopment: process.env.NODE_ENV === "development",
+  
+  // Scout Mode Paywall
+  paywallLive: process.env.NEXT_PUBLIC_PAYWALL_LIVE === "true",
 };
 
 // Validate required env vars on import (server-side only)

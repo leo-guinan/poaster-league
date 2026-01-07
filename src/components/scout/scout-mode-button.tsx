@@ -37,7 +37,17 @@ export function ScoutModeButton() {
       return;
     }
 
-    // Start subscription flow
+    // Check if paywall is live
+    const paywallLive = process.env.NEXT_PUBLIC_PAYWALL_LIVE === "true";
+
+    if (!paywallLive) {
+      // Paywall is off - navigate directly to scout setup
+      trackEvent(FATHOM_EVENTS.PAGE_VIEW_SCOUT);
+      router.push("/scout");
+      return;
+    }
+
+    // Paywall is live - start subscription flow
     setIsRedirecting(true);
     try {
       const response = await fetch("/api/stripe/checkout", {
@@ -90,7 +100,11 @@ export function ScoutModeButton() {
       ) : (
         <>
           <Search className="mr-2 h-4 w-4" />
-          {isActive ? "Scout Mode" : "Subscribe to Scout Mode"}
+          {isActive
+            ? "Scout Mode"
+            : process.env.NEXT_PUBLIC_PAYWALL_LIVE === "true"
+            ? "Subscribe to Scout Mode"
+            : "Scout Mode"}
         </>
       )}
     </Button>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { logger } from "@/lib/logger";
 import { ScoutConfig } from "@/lib/types/user";
+import { env } from "@/lib/env";
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,19 +18,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user has active subscription
-    const { data: subscription } = await supabase
-      .from("subscriptions")
-      .select("status")
-      .eq("user_id", user.id)
-      .in("status", ["active", "trialing"])
-      .maybeSingle();
+    // Check if user has active subscription (only if paywall is live)
+    if (env.paywallLive) {
+      const { data: subscription } = await supabase
+        .from("subscriptions")
+        .select("status")
+        .eq("user_id", user.id)
+        .in("status", ["active", "trialing"])
+        .maybeSingle();
 
-    if (!subscription) {
-      return NextResponse.json(
-        { error: "Active subscription required" },
-        { status: 403 }
-      );
+      if (!subscription) {
+        return NextResponse.json(
+          { error: "Active subscription required" },
+          { status: 403 }
+        );
+      }
     }
 
     const config: ScoutConfig = await request.json();

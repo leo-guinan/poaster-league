@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { UserState } from "@/lib/types/user";
+import { env } from "@/lib/env";
 
 export async function getUserState(): Promise<UserState> {
   const supabase = await createClient();
@@ -99,9 +100,21 @@ export async function getUserState(): Promise<UserState> {
     userProfile.write_permission ? "write-enabled" : "read-only";
 
   // Determine scout status
-  const scoutStatus: "inactive" | "active" = userProfile.scout_active
-    ? "active"
-    : "inactive";
+  // If paywall is off, check if user has a scout profile instead of subscription
+  let scoutStatus: "inactive" | "active";
+  if (env.paywallLive) {
+    scoutStatus = userProfile.scout_active ? "active" : "inactive";
+  } else {
+    // Paywall is off - check if user has a scout profile
+    const { data: scoutProfile } = await supabase
+      .from("scout_profiles")
+      .select("id, active")
+      .eq("user_id", user.id)
+      .eq("active", true)
+      .maybeSingle();
+    
+    scoutStatus = scoutProfile ? "active" : "inactive";
+  }
 
   return {
     authState: "authenticated",

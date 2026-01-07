@@ -205,21 +205,34 @@ export function ScoutSetup({ onComplete: _onComplete }: ScoutSetupProps) {
         return;
       }
 
-      // Redirect to Stripe checkout
-      const checkoutResponse = await fetch("/api/stripe/checkout", {
-        method: "POST",
-      });
+      // Check if paywall is live
+      const paywallLive = process.env.NEXT_PUBLIC_PAYWALL_LIVE === "true";
 
-      if (!checkoutResponse.ok) {
-        const error = await checkoutResponse.json();
-        alert(error.error || "Failed to start checkout");
+      // Only redirect to Stripe checkout if paywall is live
+      if (paywallLive) {
+        const checkoutResponse = await fetch("/api/stripe/checkout", {
+          method: "POST",
+        });
+
+        if (!checkoutResponse.ok) {
+          const error = await checkoutResponse.json();
+          alert(error.error || "Failed to start checkout");
+          setLoading(false);
+          return;
+        }
+
+        const { url } = await checkoutResponse.json();
+        if (url) {
+          window.location.href = url;
+        }
+      } else {
+        // Paywall is off - profile created, call onComplete to refresh
         setLoading(false);
-        return;
-      }
-
-      const { url } = await checkoutResponse.json();
-      if (url) {
-        window.location.href = url;
+        if (_onComplete) {
+          _onComplete();
+        } else {
+          window.location.reload();
+        }
       }
     } catch (error) {
       console.error("Error activating scout:", error);
@@ -510,33 +523,41 @@ export function ScoutSetup({ onComplete: _onComplete }: ScoutSetupProps) {
         <Card>
           <CardHeader>
             <CardTitle>Activate Scout</CardTitle>
-            <CardDescription>Start your Scout Mode subscription</CardDescription>
+            <CardDescription>
+              {process.env.NEXT_PUBLIC_PAYWALL_LIVE === "true"
+                ? "Start your Scout Mode subscription"
+                : "Activate your Scout Mode profile"}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="rounded-lg border bg-muted/50 p-6">
-              <div className="text-center">
-                <div className="text-4xl font-bold">$29</div>
-                <div className="text-muted-foreground">per month</div>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2 text-sm">
-                <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                <span>1 active scout</span>
-              </div>
-              <div className="flex items-center space-x-2 text-sm">
-                <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                <span>Daily scan</span>
-              </div>
-              <div className="flex items-center space-x-2 text-sm">
-                <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                <span>Weekly report</span>
-              </div>
-              <div className="flex items-center space-x-2 text-sm">
-                <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                <span>Cancel anytime</span>
-              </div>
-            </div>
+            {process.env.NEXT_PUBLIC_PAYWALL_LIVE === "true" && (
+              <>
+                <div className="rounded-lg border bg-muted/50 p-6">
+                  <div className="text-center">
+                    <div className="text-4xl font-bold">$29</div>
+                    <div className="text-muted-foreground">per month</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2 text-sm">
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary" />
+                    <span>1 active scout</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-sm">
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary" />
+                    <span>Daily scan</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-sm">
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary" />
+                    <span>Weekly report</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-sm">
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary" />
+                    <span>Cancel anytime</span>
+                  </div>
+                </div>
+              </>
+            )}
             <Button
               onClick={handleActivate}
               disabled={loading}
