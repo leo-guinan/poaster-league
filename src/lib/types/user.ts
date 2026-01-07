@@ -29,16 +29,34 @@ export interface WriteRequest {
 export interface ScoutProfile {
   id: string;
   userId: string;
-  config: {
-    topics?: string[];
-    intentPatterns?: string[];
-    relationshipTargets?: string[];
-    exclusions?: string[];
-  };
+  config: ScoutConfig;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface ScoutConfig {
+  intentShapes?: ScoutIntentType[];
+  domain?: string;
+  relationshipTarget?: RelationshipTarget;
+  sensitivity?: "emerging" | "established";
+}
+
+export type RelationshipTarget =
+  | "collaborator"
+  | "hire"
+  | "mentor"
+  | "peer"
+  | "investment"
+  | "track";
+
+export type ScoutIntentType =
+  | "propose"
+  | "synthesize"
+  | "critique"
+  | "seek-collaborators"
+  | "teach"
+  | "build-in-public";
 
 export interface ScoutMatch {
   id: string;
